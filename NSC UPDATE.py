@@ -1,6 +1,7 @@
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
+import numpy as np
 import requests
 import zipfile
 import io
@@ -317,17 +318,23 @@ for _, row in merged.iterrows():
         )
 
         rows.append([
-            symbol,
-            cmp_price,
-            volume,
-            delivery_qty,
-            delivery_pct,
-            turnover
+            str(symbol),
+            float(cmp_price) if pd.notna(cmp_price) else 0,
+            float(volume) if pd.notna(volume) else 0,
+            float(delivery_qty) if pd.notna(delivery_qty) else 0,
+            float(delivery_pct) if pd.notna(delivery_pct) else 0,
+            float(turnover) if pd.notna(turnover) else 0
         ])
 
     except Exception as e:
 
         print("ROW ERROR:", e)
+
+# =========================================================
+# REMOVE NaN / INF
+# =========================================================
+
+rows = np.nan_to_num(rows).tolist()
 
 # =========================================================
 # UPDATE SHEET
@@ -354,5 +361,4 @@ worksheet.update(
     [[status_msg]]
 )
 
-print("SUCCESS : GOOGLE SHEET UPDATED")
 print("SUCCESS : GOOGLE SHEET UPDATED")
