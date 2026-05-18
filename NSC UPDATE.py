@@ -17,8 +17,6 @@ creds_dict = json.loads(
 with open("credentials.json", "w") as f:
     json.dump(creds_dict, f)
 
-print("Credentials Loaded")
-
 # ---------------- GOOGLE AUTH ---------------- #
 
 scope = [
@@ -39,28 +37,11 @@ sheet = client.open(
 
 print("Google Sheet Connected")
 
-# ---------------- WATCHLIST ---------------- #
-
-watchlist = [
-    "RELIANCE",
-    "TCS",
-    "INFY",
-    "SBIN"
-]
-
-# ---------------- FIXED WORKING DATE ---------------- #
-
-today = datetime(2025, 5, 16)
-
-dd = today.strftime("%d")
-mon = today.strftime("%b").upper()
-yyyy = today.strftime("%Y")
-
-# ---------------- NSE URL ---------------- #
+# ---------------- WORKING FILE URL ---------------- #
 
 url = (
-    f"https://nsearchives.nseindia.com/"
-    f"products/content/sec_bhavdata_full_{dd}{mon}{yyyy}.csv"
+    "https://nsearchives.nseindia.com/"
+    "products/content/sec_bhavdata_full_16MAY2025.csv"
 )
 
 print(url)
@@ -68,10 +49,7 @@ print(url)
 # ---------------- REQUEST ---------------- #
 
 headers = {
-    "User-Agent": (
-        "Mozilla/5.0 "
-        "(Windows NT 10.0; Win64; x64)"
-    )
+    "User-Agent": "Mozilla/5.0"
 }
 
 response = requests.get(
@@ -82,9 +60,7 @@ response = requests.get(
 
 print("STATUS:", response.status_code)
 
-print(response.text[:500])
-
-# ---------------- SAVE FILE ---------------- #
+# ---------------- SAVE RAW ---------------- #
 
 with open(
     "bhavcopy.csv",
@@ -94,33 +70,49 @@ with open(
 
     f.write(response.text)
 
-print("CSV SAVED")
-
 # ---------------- READ CSV ---------------- #
 
 try:
 
     df = pd.read_csv(
         "bhavcopy.csv",
-        engine="python"
+        sep=",",
+        engine="python",
+        on_bad_lines="skip"
     )
 
-    print("CSV LOADED")
-
 except Exception as e:
-
-    print("CSV ERROR:", e)
 
     sheet.update(
         "A1",
         [["CSV ERROR", str(e)]]
     )
 
-    exit()
+    raise
 
-# ---------------- CLEAN DATA ---------------- #
+print(df.head())
+
+# ---------------- CLEAN ---------------- #
 
 df.columns = df.columns.str.strip()
+
+if "SYMBOL" not in df.columns:
+
+    sheet.update(
+        "A1",
+        [["INVALID NSE RESPONSE"]]
+    )
+
+    print("INVALID RESPONSE")
+
+    exit()
+
+watchlist = [
+    "RELIANCE",
+    "TCS",
+    "INFY",
+    "SBIN"
+]
 
 df["SYMBOL"] = (
     df["SYMBOL"]
@@ -128,17 +120,13 @@ df["SYMBOL"] = (
     .str.strip()
 )
 
-# ---------------- FILTER ---------------- #
-
 filtered = df[
     df["SYMBOL"].isin(watchlist)
 ]
 
 print(filtered)
 
-print("ROWS FOUND:", len(filtered))
-
-# ---------------- PREPARE ROWS ---------------- #
+# ---------------- ROWS ---------------- #
 
 rows = []
 
@@ -160,13 +148,10 @@ for _, row in filtered.iterrows():
             turnover
         ])
 
-    except Exception as e:
+    except:
+        pass
 
-        print("ROW ERROR:", e)
-
-print(rows)
-
-# ---------------- UPDATE SHEET ---------------- #
+# ---------------- SHEET UPDATE ---------------- #
 
 sheet.clear()
 
@@ -182,4 +167,4 @@ sheet.update(
     ]] + rows
 )
 
-print("GOOGLE SHEET UPDATED SUCCESSFULLY")
+print("DONE")
