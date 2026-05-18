@@ -30,20 +30,25 @@ creds = ServiceAccountCredentials.from_json_keyfile_name(
 
 client = gspread.authorize(creds)
 
-sheet = client.open("NSE Delivery Scanner").sheet1
+# IMPORTANT:
+# Exact Google Sheet name
+
+sheet = client.open(
+    "NSE Delivery Scanner"
+).sheet1
 
 # ---------------- WATCHLIST ---------------- #
 
-WATCHLIST = [
+watchlist = [
     "RELIANCE",
     "TCS",
     "INFY",
     "SBIN"
 ]
 
-# ---------------- DATE ---------------- #
+# ---------------- FIXED WORKING DATE ---------------- #
 
-today = datetime.now()
+today = datetime(2025, 5, 16)
 
 dd = today.strftime("%d")
 mon = today.strftime("%b").upper()
@@ -55,6 +60,8 @@ url = (
     f"https://archives.nseindia.com/products/content/"
     f"sec_bhavdata_full_{dd}{mon}{yyyy}.csv"
 )
+
+print(url)
 
 # ---------------- NSE SESSION ---------------- #
 
@@ -70,7 +77,7 @@ headers = {
     )
 }
 
-# First visit homepage for cookies
+# Open NSE homepage first
 
 session.get(
     "https://www.nseindia.com",
@@ -78,7 +85,7 @@ session.get(
     timeout=20
 )
 
-# Fetch bhavcopy
+# Download bhavcopy
 
 r = session.get(
     url,
@@ -86,11 +93,13 @@ r = session.get(
     timeout=20
 )
 
-# ---------------- RESPONSE CHECK ---------------- #
+print("STATUS CODE:", r.status_code)
+
+# ---------------- CHECK RESPONSE ---------------- #
 
 if "SYMBOL" not in r.text:
 
-    print("Invalid NSE response")
+    print("INVALID RESPONSE")
     print(r.text[:1000])
 
     exit()
@@ -101,17 +110,23 @@ df = pd.read_csv(
     io.StringIO(r.text)
 )
 
+# Clean columns
+
 df.columns = df.columns.str.strip()
 
 df["SYMBOL"] = df["SYMBOL"].str.strip()
 
-# ---------------- FILTER WATCHLIST ---------------- #
+# ---------------- FILTER STOCKS ---------------- #
 
 filtered = df[
-    df["SYMBOL"].isin(WATCHLIST)
+    df["SYMBOL"].isin(watchlist)
 ]
 
-# ---------------- CREATE OUTPUT ---------------- #
+print(filtered)
+
+print("ROWS FOUND:", len(filtered))
+
+# ---------------- PREPARE SHEET DATA ---------------- #
 
 rows = []
 
@@ -131,21 +146,20 @@ for _, row in filtered.iterrows():
         turnover
     ])
 
-# ---------------- GOOGLE SHEET UPDATE ---------------- #
-
-headers_row = [[
-    "Stock",
-    "CMP",
-    "Volume",
-    "Delivery Qty",
-    "Delivery %",
-    "Turnover Cr"
-]]
+# ---------------- UPDATE GOOGLE SHEET ---------------- #
 
 sheet.clear()
 
 sheet.update(
-    headers_row + rows
+    "A1",
+    [[
+        "Stock",
+        "CMP",
+        "Volume",
+        "Delivery Qty",
+        "Delivery %",
+        "Turnover Cr"
+    ]] + rows
 )
 
-print("Google Sheet Updated Successfully")
+print("GOOGLE SHEET UPDATED SUCCESSFULLY")
