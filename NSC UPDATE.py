@@ -1,147 +1,347 @@
-import json
-import os
-import pandas as pd
-import requests
-import io
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import pandas as pd
+import requests
+import zipfile
+import io
+from datetime import datetime, timedelta
+import os
+import json
 
-# ---------------- GOOGLE AUTH ---------------- #
+# =========================================================
+# GOOGLE SHEET AUTH
+# =========================================================
 
-creds_dict = json.loads(
-    os.environ["GOOGLE_CREDENTIALS"]
-)
+creds_json = os.environ.get('GCP_CREDENTIALS')
 
-with open("credentials.json", "w") as f:
-    json.dump(creds_dict, f)
+creds_dict = json.loads(creds_json)
 
 scope = [
     "https://spreadsheets.google.com/feeds",
     "https://www.googleapis.com/auth/drive"
 ]
 
-creds = ServiceAccountCredentials.from_json_keyfile_name(
-    "credentials.json",
+creds = ServiceAccountCredentials.from_json_keyfile_dict(
+    creds_dict,
     scope
 )
 
 client = gspread.authorize(creds)
 
-sheet = client.open(
-    "NSE Delivery Scanner"
-).sheet1
+# =========================================================
+# GOOGLE SHEET
+# =========================================================
 
-# ---------------- NSE SESSION ---------------- #
+SPREADSHEET_ID = "10BXNfcfrQ7eznLUeaiRgL4zHFyLHKmWL1gEXULVeSEY"
 
-session = requests.Session()
+worksheet = client.open_by_key(
+    SPREADSHEET_ID
+).worksheet("Top 250 Stocks")
 
-headers = {
-    "User-Agent": (
-        "Mozilla/5.0 "
-        "(Windows NT 10.0; Win64; x64)"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept": "*/*",
-    "Referer": "https://www.nseindia.com/"
-}
+# =========================================================
+# FETCH UDIFF BHAVCOPY
+# =========================================================
 
-# First get cookies
+def fetch_bhavcopy(date_obj):
 
-session.get(
-    "https://www.nseindia.com",
-    headers=headers,
-    timeout=20
-)
+    date_str = date_obj.strftime("%Y%m%d")
 
-# ---------------- NSE CSV URL ---------------- #
-
-url = (
-    "https://nsearchives.nseindia.com/"
-    "products/content/sec_bhavdata_full_16MAY2025.csv"
-)
-
-response = session.get(
-    url,
-    headers=headers,
-    timeout=30
-)
-
-print(response.status_code)
-
-print(response.text[:300])
-
-# ---------------- CHECK RESPONSE ---------------- #
-
-if "SYMBOL" not in response.text:
-
-    sheet.update(
-        "A1",
-        [["NSE BLOCKED OR INVALID RESPONSE"]]
+    url = (
+        f"https://nsearchives.nseindia.com/content/cm/"
+        f"BhavCopy_NSE_CM_0_0_0_{date_str}_F_0000.csv.zip"
     )
 
-    exit()
+    headers = {
+        'User-Agent':
+        'Mozilla/5.0'
+    }
 
-# ---------------- READ CSV ---------------- #
+    try:
 
-df = pd.read_csv(
-    io.StringIO(response.text)
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=20
+        )
+
+        if response.status_code != 200:
+            return None
+
+        with zipfile.ZipFile(
+            io.BytesIO(response.content)
+        ) as z:
+
+            csv_filename = z.namelist()[0]
+
+            with z.open(csv_filename) as f:
+
+                df = pd.read_csv(f)
+
+                return df
+
+    except Exception as e:
+
+        print("BHAVCOPY ERROR:", e)
+
+        return None
+
+# =========================================================
+# FETCH DELIVERY DATA
+# =========================================================
+
+def fetch_delivery_data(date_obj):
+
+    dd = date_obj.strftime("%d")
+
+    mon = date_obj.strftime("%b").upper()
+
+    yyyy = date_obj.strftime("%Y")
+
+    url = (
+        f"https://nsearchives.nseindia.com/products/content/"
+        f"sec_bhavdata_full_{dd}{mon}{yyyy}.csv"
+    )
+
+    headers = {
+        "User-Agent":
+        "Mozilla/5.0"
+    }
+
+    try:
+
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=20
+        )
+
+        if response.status_code != 200:
+            return None
+
+        if "SYMBOL" not in response.text:
+            return None
+
+        df = pd.read_csv(
+            io.StringIO(response.text)
+        )
+
+        df.columns = df.columns.str.strip()
+
+        return df
+
+    except Exception as e:
+
+        print("DELIVERY ERROR:", e)
+
+        return None
+
+# =========================================================
+# FIND LATEST WORKING DATE
+# =========================================================
+
+latest_bhav = None
+latest_delivery = None
+working_date = None
+
+today = datetime.now()
+
+for i in range(7):
+
+    test_date = today - timedelta(days=i)
+
+    if test_date.weekday() >= 5:
+        continue
+
+    bhav_df = fetch_bhavcopy(test_date)
+
+    delivery_df = fetch_delivery_data(test_date)
+
+    if bhav_df is not None and delivery_df is not None:
+
+        latest_bhav = bhav_df
+
+        latest_delivery = delivery_df
+
+        working_date = test_date
+
+        break
+
+# =========================================================
+# CHECK DATA
+# =========================================================
+
+if latest_bhav is None:
+
+    worksheet.update(
+        'A1',
+        [["NO BHAVCOPY DATA FOUND"]]
+    )
+
+    raise Exception("NO DATA")
+
+# =========================================================
+# CLEAN BHAVCOPY
+# =========================================================
+
+sym_col = (
+    'TckrSymb'
+    if 'TckrSymb' in latest_bhav.columns
+    else 'SYMBOL'
 )
 
-df.columns = df.columns.str.strip()
+close_col = (
+    'ClsPric'
+    if 'ClsPric' in latest_bhav.columns
+    else 'CLOSE'
+)
 
-df["SYMBOL"] = (
-    df["SYMBOL"]
+series_col = (
+    'SctySrs'
+    if 'SctySrs' in latest_bhav.columns
+    else 'SERIES'
+)
+
+vol_col = None
+
+for c in [
+    'TtlTradgVol',
+    'TtlTrdQty',
+    'TotTrdQty',
+    'TOTTRDQTY'
+]:
+
+    if c in latest_bhav.columns:
+
+        vol_col = c
+
+        break
+
+# EQ only
+
+latest_bhav = latest_bhav[
+    latest_bhav[series_col]
+    .astype(str)
+    .str.strip() == 'EQ'
+]
+
+# Remove ETFs
+
+filter_keywords = (
+    'BEES|ETF|GOLD|LIQUID|CASE|SILVER|LIQ'
+)
+
+latest_bhav = latest_bhav[
+    ~latest_bhav[sym_col]
+    .astype(str)
+    .str.contains(
+        filter_keywords,
+        case=False,
+        na=False
+    )
+]
+
+# =========================================================
+# TOP 250 VOLUME STOCKS
+# =========================================================
+
+top250 = latest_bhav.sort_values(
+    by=vol_col,
+    ascending=False
+).head(250)
+
+# =========================================================
+# CLEAN DELIVERY DATA
+# =========================================================
+
+latest_delivery["SYMBOL"] = (
+    latest_delivery["SYMBOL"]
     .astype(str)
     .str.strip()
 )
 
-# ---------------- WATCHLIST ---------------- #
+# =========================================================
+# MERGE
+# =========================================================
 
-watchlist = [
-    "RELIANCE",
-    "TCS",
-    "INFY",
-    "SBIN"
-]
+merged = pd.merge(
+    top250,
+    latest_delivery,
+    left_on=sym_col,
+    right_on="SYMBOL",
+    how="left"
+)
 
-filtered = df[
-    df["SYMBOL"].isin(watchlist)
-]
-
-# ---------------- PREPARE DATA ---------------- #
+# =========================================================
+# PREPARE FINAL DATA
+# =========================================================
 
 rows = []
 
-for _, row in filtered.iterrows():
+for _, row in merged.iterrows():
 
-    turnover = round(
-        float(row["TTL_TRD_VAL"]) / 10000000,
-        2
-    )
+    try:
 
-    rows.append([
-        row["SYMBOL"],
-        row["CLOSE_PRICE"],
-        row["TTL_TRD_QNTY"],
-        row["DELIV_QTY"],
-        row["DELIV_PER"],
-        turnover
-    ])
+        symbol = row[sym_col]
 
-# ---------------- UPDATE SHEET ---------------- #
+        cmp_price = row[close_col]
 
-sheet.clear()
+        volume = row[vol_col]
 
-sheet.update(
-    "A1",
-    [[
-        "Stock",
-        "CMP",
-        "Volume",
-        "Delivery Qty",
-        "Delivery %",
-        "Turnover Cr"
-    ]] + rows
+        delivery_qty = row["DELIV_QTY"]
+
+        delivery_pct = row["DELIV_PER"]
+
+        turnover = round(
+            float(row["TTL_TRD_VAL"]) / 10000000,
+            2
+        )
+
+        rows.append([
+            symbol,
+            cmp_price,
+            volume,
+            delivery_qty,
+            delivery_pct,
+            turnover
+        ])
+
+    except:
+        pass
+
+# =========================================================
+# UPDATE SHEET
+# =========================================================
+
+worksheet.batch_clear(
+    ['A:F']
 )
 
-print("GOOGLE SHEET UPDATED")
+headers = [[
+    "Stock",
+    "CMP",
+    "Volume",
+    "Delivery Qty",
+    "Delivery %",
+    "Turnover Cr"
+]]
+
+worksheet.update(
+    'A1',
+    headers + rows
+)
+
+# =========================================================
+# STATUS
+# =========================================================
+
+status_msg = (
+    f"Updated: "
+    f"{working_date.strftime('%d-%b-%Y')}"
+)
+
+worksheet.update(
+    'K2',
+    [[status_msg]]
+)
+
+print("SUCCESS: SHEET UPDATED")
