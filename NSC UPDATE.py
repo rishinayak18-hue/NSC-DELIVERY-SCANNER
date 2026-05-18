@@ -5,7 +5,7 @@ import numpy as np
 import requests
 import zipfile
 import io
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import json
 
@@ -40,7 +40,7 @@ worksheet = client.open_by_key(
 ).worksheet("Sheet1")
 
 # =========================================================
-# FETCH UDIFF BHAVCOPY
+# FETCH NSE BHAVCOPY
 # =========================================================
 
 def fetch_bhavcopy(date_obj):
@@ -53,8 +53,7 @@ def fetch_bhavcopy(date_obj):
     )
 
     headers = {
-        "User-Agent":
-        "Mozilla/5.0"
+        "User-Agent": "Mozilla/5.0"
     }
 
     try:
@@ -89,11 +88,6 @@ def fetch_bhavcopy(date_obj):
         return None
 
 # =========================================================
-# FETCH DELIVERY DATA
-# =========================================================
-
-def fetch_delivery_data(date_obj):
-    # =========================================================
 # FETCH DELIVERY DATA FROM NSE API
 # =========================================================
 
@@ -156,69 +150,33 @@ def fetch_delivery(symbol):
 
         return 0, 0
 
-    dd = date_obj.strftime("%d")
-
-    mon = date_obj.strftime("%b").upper()
-
-    yyyy = date_obj.strftime("%Y")
-
-    url = (
-        f"https://nsearchives.nseindia.com/products/content/"
-        f"sec_bhavdata_full_{dd}{mon}{yyyy}.csv"
-    )
-
-    headers = {
-        "User-Agent":
-        "Mozilla/5.0"
-    }
-
-    try:
-
-        response = requests.get(
-            url,
-            headers=headers,
-            timeout=20
-        )
-
-        print("DELIVERY STATUS:", response.status_code)
-
-        if response.status_code != 200:
-            return None
-
-        if "SYMBOL" not in response.text:
-            return None
-
-        df = pd.read_csv(
-            io.StringIO(response.text)
-        )
-
-        df.columns = df.columns.str.strip()
-
-        return df
-
-    except Exception as e:
-
-        print("DELIVERY ERROR:", e)
-
-        return None
-
 # =========================================================
-# FIXED WORKING DATE
+# GET LATEST WORKING BHAVCOPY
 # =========================================================
 
-working_date = datetime(2025, 5, 16)
+def get_latest_bhavcopy():
 
-latest_bhav = fetch_bhavcopy(
-    working_date
-)
+    today = datetime.now()
 
-latest_delivery = fetch_delivery_data(
-    working_date
-)
+    for i in range(7):
+
+        test_date = today - timedelta(days=i)
+
+        if test_date.weekday() >= 5:
+            continue
+
+        df = fetch_bhavcopy(test_date)
+
+        if df is not None:
+            return df, test_date
+
+    return None, None
 
 # =========================================================
-# CHECK BHAVCOPY
+# FETCH DATA
 # =========================================================
+
+latest_bhav, working_date = get_latest_bhavcopy()
 
 if latest_bhav is None:
 
@@ -230,24 +188,7 @@ if latest_bhav is None:
     raise Exception("BHAVCOPY FAILED")
 
 # =========================================================
-# OPTIONAL DELIVERY DATA
-# =========================================================
-
-if latest_delivery is None:
-
-    print("DELIVERY DATA NOT AVAILABLE")
-
-    latest_delivery = pd.DataFrame(
-        columns=[
-            "SYMBOL",
-            "DELIV_QTY",
-            "DELIV_PER",
-            "TTL_TRD_VAL"
-        ]
-    )
-
-# =========================================================
-# CLEAN BHAVCOPY
+# COLUMN DETECTION
 # =========================================================
 
 sym_col = (
@@ -284,7 +225,7 @@ for c in [
         break
 
 # =========================================================
-# EQ ONLY
+# FILTER EQ STOCKS
 # =========================================================
 
 latest_bhav = latest_bhav[
@@ -312,55 +253,21 @@ latest_bhav = latest_bhav[
 ]
 
 # =========================================================
-# TOP 250 STOCKS
+# TOP 50 STOCKS
 # =========================================================
 
 top250 = latest_bhav.sort_values(
     by=vol_col,
     ascending=False
-).head(250)
+).head(50)
 
 # =========================================================
-# CLEAN DELIVERY DATA
-# =========================================================
-
-if "SYMBOL" not in latest_delivery.columns:
-    latest_delivery["SYMBOL"] = ""
-
-if "TTL_TRD_VAL" not in latest_delivery.columns:
-    latest_delivery["TTL_TRD_VAL"] = 0
-
-if "DELIV_QTY" not in latest_delivery.columns:
-    latest_delivery["DELIV_QTY"] = 0
-
-if "DELIV_PER" not in latest_delivery.columns:
-    latest_delivery["DELIV_PER"] = 0
-
-latest_delivery["SYMBOL"] = (
-    latest_delivery["SYMBOL"]
-    .astype(str)
-    .str.strip()
-)
-
-# =========================================================
-# MERGE
-# =========================================================
-
-merged = pd.merge(
-    top250,
-    latest_delivery,
-    left_on=sym_col,
-    right_on="SYMBOL",
-    how="left"
-)
-
-# =========================================================
-# PREPARE FINAL DATA
+# PREPARE DATA
 # =========================================================
 
 rows = []
 
-for _, row in merged.iterrows():
+for _, row in top250.iterrows():
 
     try:
 
@@ -370,23 +277,26 @@ for _, row in merged.iterrows():
 
         volume = row[vol_col]
 
-        delivery_qty = row["DELIV_QTY"]
+        turnover = 0
 
-        delivery_pct = row["DELIV_PER"]
+        if pd.notna(volume) and pd.notna(cmp_price):
 
-        turnover = round(
-            float(row["TTL_TRD_VAL"]) / 10000000,
-            2
-        )
-             delivery_qty, delivery_pct = fetch_delivery(symbol)
-       rows.append([
-    str(symbol),
-    float(cmp_price),
-    float(volume),
-    float(delivery_qty),
-    float(delivery_pct),
-    float(turnover)
-])
+            turnover = round(
+                (float(volume) * float(cmp_price)) / 10000000,
+                2
+            )
+
+        # DELIVERY API
+        delivery_qty, delivery_pct = fetch_delivery(symbol)
+
+        rows.append([
+            str(symbol),
+            float(cmp_price) if pd.notna(cmp_price) else 0,
+            float(volume) if pd.notna(volume) else 0,
+            float(delivery_qty),
+            float(delivery_pct),
+            float(turnover)
+        ])
 
     except Exception as e:
 
