@@ -4,7 +4,7 @@ import pandas as pd
 import requests
 import zipfile
 import io
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 import json
 
@@ -32,11 +32,11 @@ client = gspread.authorize(creds)
 # GOOGLE SHEET
 # =========================================================
 
-SPREADSHEET_ID = "10BXNfcfrQ7eznLUeaiRgL4zHFyLHKmWL1gEXULVeSEY"
+SPREADSHEET_ID = "PASTE_YOUR_GOOGLE_SHEET_ID"
 
 worksheet = client.open_by_key(
     SPREADSHEET_ID
-).worksheet("Top 250 Stocks")
+).worksheet("Sheet1")
 
 # =========================================================
 # FETCH UDIFF BHAVCOPY
@@ -52,8 +52,8 @@ def fetch_bhavcopy(date_obj):
     )
 
     headers = {
-        'User-Agent':
-        'Mozilla/5.0'
+        "User-Agent":
+        "Mozilla/5.0"
     }
 
     try:
@@ -63,6 +63,8 @@ def fetch_bhavcopy(date_obj):
             headers=headers,
             timeout=20
         )
+
+        print("BHAVCOPY STATUS:", response.status_code)
 
         if response.status_code != 200:
             return None
@@ -115,6 +117,8 @@ def fetch_delivery_data(date_obj):
             timeout=20
         )
 
+        print("DELIVERY STATUS:", response.status_code)
+
         if response.status_code != 200:
             return None
 
@@ -136,35 +140,18 @@ def fetch_delivery_data(date_obj):
         return None
 
 # =========================================================
-# FIND LATEST WORKING DATE
+# FIXED WORKING DATE
 # =========================================================
 
-latest_bhav = None
-latest_delivery = None
-working_date = None
+working_date = datetime(2025, 5, 16)
 
-today = datetime.now()
+latest_bhav = fetch_bhavcopy(
+    working_date
+)
 
-for i in range(7):
-
-    test_date = today - timedelta(days=i)
-
-    if test_date.weekday() >= 5:
-        continue
-
-    bhav_df = fetch_bhavcopy(test_date)
-
-    delivery_df = fetch_delivery_data(test_date)
-
-    if bhav_df is not None and delivery_df is not None:
-
-        latest_bhav = bhav_df
-
-        latest_delivery = delivery_df
-
-        working_date = test_date
-
-        break
+latest_delivery = fetch_delivery_data(
+    working_date
+)
 
 # =========================================================
 # CHECK DATA
@@ -173,11 +160,20 @@ for i in range(7):
 if latest_bhav is None:
 
     worksheet.update(
-        'A1',
-        [["NO BHAVCOPY DATA FOUND"]]
+        'K2',
+        [["BHAVCOPY FAILED"]]
     )
 
-    raise Exception("NO DATA")
+    raise Exception("BHAVCOPY FAILED")
+
+if latest_delivery is None:
+
+    worksheet.update(
+        'K2',
+        [["DELIVERY FAILED"]]
+    )
+
+    raise Exception("DELIVERY FAILED")
 
 # =========================================================
 # CLEAN BHAVCOPY
@@ -241,7 +237,7 @@ latest_bhav = latest_bhav[
 ]
 
 # =========================================================
-# TOP 250 VOLUME STOCKS
+# TOP 250 STOCKS
 # =========================================================
 
 top250 = latest_bhav.sort_values(
@@ -305,29 +301,19 @@ for _, row in merged.iterrows():
             turnover
         ])
 
-    except:
-        pass
+    except Exception as e:
+
+        print("ROW ERROR:", e)
 
 # =========================================================
 # UPDATE SHEET
 # =========================================================
 
-worksheet.batch_clear(
-    ['A:F']
-)
-
-headers = [[
-    "Stock",
-    "CMP",
-    "Volume",
-    "Delivery Qty",
-    "Delivery %",
-    "Turnover Cr"
-]]
+worksheet.batch_clear(['A2:F1000'])
 
 worksheet.update(
-    'A1',
-    headers + rows
+    'A2',
+    rows
 )
 
 # =========================================================
@@ -335,7 +321,7 @@ worksheet.update(
 # =========================================================
 
 status_msg = (
-    f"Updated: "
+    f"Updated Successfully : "
     f"{working_date.strftime('%d-%b-%Y')}"
 )
 
@@ -344,4 +330,4 @@ worksheet.update(
     [[status_msg]]
 )
 
-print("SUCCESS: SHEET UPDATED")
+print("SUCCESS : GOOGLE SHEET UPDATED")
