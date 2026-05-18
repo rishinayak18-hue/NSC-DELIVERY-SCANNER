@@ -12,7 +12,7 @@ import json
 # GOOGLE SHEET AUTH
 # =========================================================
 
-creds_json = os.environ.get('GCP_CREDENTIALS1')
+creds_json = os.environ.get('GCP_CREDENTIALS')
 
 creds_dict = json.loads(creds_json)
 
