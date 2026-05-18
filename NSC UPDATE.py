@@ -32,7 +32,7 @@ client = gspread.authorize(creds)
 # GOOGLE SHEET
 # =========================================================
 
-SPREADSHEET_ID = "PASTE_YOUR_GOOGLE_SHEET_ID"
+SPREADSHEET_ID = "10BXNfcfrQ7eznLUeaiRgL4zHFyLHKmWL1gEXULVeSEY"
 
 worksheet = client.open_by_key(
     SPREADSHEET_ID
