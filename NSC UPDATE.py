@@ -2,13 +2,11 @@ import json
 import os
 import pandas as pd
 import requests
-from datetime import datetime
+import io
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-print("START")
-
-# ---------------- GOOGLE CREDENTIALS ---------------- #
+# ---------------- GOOGLE AUTH ---------------- #
 
 creds_dict = json.loads(
     os.environ["GOOGLE_CREDENTIALS"]
@@ -16,8 +14,6 @@ creds_dict = json.loads(
 
 with open("credentials.json", "w") as f:
     json.dump(creds_dict, f)
-
-# ---------------- GOOGLE AUTH ---------------- #
 
 scope = [
     "https://spreadsheets.google.com/feeds",
@@ -35,77 +31,71 @@ sheet = client.open(
     "NSE Delivery Scanner"
 ).sheet1
 
-print("Google Sheet Connected")
+# ---------------- NSE SESSION ---------------- #
 
-# ---------------- WORKING FILE URL ---------------- #
+session = requests.Session()
+
+headers = {
+    "User-Agent": (
+        "Mozilla/5.0 "
+        "(Windows NT 10.0; Win64; x64)"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "*/*",
+    "Referer": "https://www.nseindia.com/"
+}
+
+# First get cookies
+
+session.get(
+    "https://www.nseindia.com",
+    headers=headers,
+    timeout=20
+)
+
+# ---------------- NSE CSV URL ---------------- #
 
 url = (
     "https://nsearchives.nseindia.com/"
     "products/content/sec_bhavdata_full_16MAY2025.csv"
 )
 
-print(url)
-
-# ---------------- REQUEST ---------------- #
-
-headers = {
-    "User-Agent": "Mozilla/5.0"
-}
-
-response = requests.get(
+response = session.get(
     url,
     headers=headers,
     timeout=30
 )
 
-print("STATUS:", response.status_code)
+print(response.status_code)
 
-# ---------------- SAVE RAW ---------------- #
+print(response.text[:300])
 
-with open(
-    "bhavcopy.csv",
-    "w",
-    encoding="utf-8"
-) as f:
+# ---------------- CHECK RESPONSE ---------------- #
 
-    f.write(response.text)
+if "SYMBOL" not in response.text:
+
+    sheet.update(
+        "A1",
+        [["NSE BLOCKED OR INVALID RESPONSE"]]
+    )
+
+    exit()
 
 # ---------------- READ CSV ---------------- #
 
-try:
-
-    df = pd.read_csv(
-        "bhavcopy.csv",
-        sep=",",
-        engine="python",
-        on_bad_lines="skip"
-    )
-
-except Exception as e:
-
-    sheet.update(
-        "A1",
-        [["CSV ERROR", str(e)]]
-    )
-
-    raise
-
-print(df.head())
-
-# ---------------- CLEAN ---------------- #
+df = pd.read_csv(
+    io.StringIO(response.text)
+)
 
 df.columns = df.columns.str.strip()
 
-if "SYMBOL" not in df.columns:
+df["SYMBOL"] = (
+    df["SYMBOL"]
+    .astype(str)
+    .str.strip()
+)
 
-    sheet.update(
-        "A1",
-        [["INVALID NSE RESPONSE"]]
-    )
-
-    print("INVALID RESPONSE")
-
-    exit()
+# ---------------- WATCHLIST ---------------- #
 
 watchlist = [
     "RELIANCE",
@@ -114,44 +104,31 @@ watchlist = [
     "SBIN"
 ]
 
-df["SYMBOL"] = (
-    df["SYMBOL"]
-    .astype(str)
-    .str.strip()
-)
-
 filtered = df[
     df["SYMBOL"].isin(watchlist)
 ]
 
-print(filtered)
-
-# ---------------- ROWS ---------------- #
+# ---------------- PREPARE DATA ---------------- #
 
 rows = []
 
 for _, row in filtered.iterrows():
 
-    try:
+    turnover = round(
+        float(row["TTL_TRD_VAL"]) / 10000000,
+        2
+    )
 
-        turnover = round(
-            float(row["TTL_TRD_VAL"]) / 10000000,
-            2
-        )
+    rows.append([
+        row["SYMBOL"],
+        row["CLOSE_PRICE"],
+        row["TTL_TRD_QNTY"],
+        row["DELIV_QTY"],
+        row["DELIV_PER"],
+        turnover
+    ])
 
-        rows.append([
-            row["SYMBOL"],
-            row["CLOSE_PRICE"],
-            row["TTL_TRD_QNTY"],
-            row["DELIV_QTY"],
-            row["DELIV_PER"],
-            turnover
-        ])
-
-    except:
-        pass
-
-# ---------------- SHEET UPDATE ---------------- #
+# ---------------- UPDATE SHEET ---------------- #
 
 sheet.clear()
 
@@ -167,4 +144,4 @@ sheet.update(
     ]] + rows
 )
 
-print("DONE")
+print("GOOGLE SHEET UPDATED")
