@@ -1,21 +1,16 @@
 name: NSE Scanner
 
 on:
-
   workflow_dispatch:
 
-  schedule:
-    - cron: '30 13 * * 1-5'
-
 jobs:
-
   run-script:
 
     runs-on: ubuntu-latest
 
     steps:
 
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -23,12 +18,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Requirements
-        run: |
-          pip install -r requirements.txt
+      - name: Install Packages
+        run: pip install -r requirements.txt
 
-      - name: Run NSE Script
+      - name: Run Script
         env:
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-        run: |
-          python "NSC UPDATE.py"
+          GCP_CREDENTIALS: ${{ secrets.GCP_CREDENTIALS }}
+        run: python "NSC UPDATE.py"
