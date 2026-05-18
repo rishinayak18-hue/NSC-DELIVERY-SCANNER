@@ -93,6 +93,68 @@ def fetch_bhavcopy(date_obj):
 # =========================================================
 
 def fetch_delivery_data(date_obj):
+    # =========================================================
+# FETCH DELIVERY DATA FROM NSE API
+# =========================================================
+
+def fetch_delivery(symbol):
+
+    session = requests.Session()
+
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept": "*/*",
+        "Referer": "https://www.nseindia.com/"
+    }
+
+    try:
+
+        session.get(
+            "https://www.nseindia.com",
+            headers=headers,
+            timeout=20
+        )
+
+        url = (
+            f"https://www.nseindia.com/api/"
+            f"quote-equity?symbol={symbol}"
+        )
+
+        response = session.get(
+            url,
+            headers=headers,
+            timeout=20
+        )
+
+        data = response.json()
+
+        security_info = data.get(
+            "securityWiseDP",
+            {}
+        )
+
+        delivery_qty = security_info.get(
+            "deliveryQuantity",
+            0
+        )
+
+        delivery_pct = security_info.get(
+            "deliveryToTradedQuantity",
+            0
+        )
+
+        return delivery_qty, delivery_pct
+
+    except Exception as e:
+
+        print(
+            "DELIVERY API ERROR:",
+            symbol,
+            e
+        )
+
+        return 0, 0
 
     dd = date_obj.strftime("%d")
 
@@ -316,15 +378,15 @@ for _, row in merged.iterrows():
             float(row["TTL_TRD_VAL"]) / 10000000,
             2
         )
-
-        rows.append([
-            str(symbol),
-            float(cmp_price) if pd.notna(cmp_price) else 0,
-            float(volume) if pd.notna(volume) else 0,
-            float(delivery_qty) if pd.notna(delivery_qty) else 0,
-            float(delivery_pct) if pd.notna(delivery_pct) else 0,
-            float(turnover) if pd.notna(turnover) else 0
-        ])
+             delivery_qty, delivery_pct = fetch_delivery(symbol)
+       rows.append([
+    str(symbol),
+    float(cmp_price),
+    float(volume),
+    float(delivery_qty),
+    float(delivery_pct),
+    float(turnover)
+])
 
     except Exception as e:
 
