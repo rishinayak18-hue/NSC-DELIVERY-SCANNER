@@ -16,8 +16,6 @@ creds_dict = json.loads(
 with open("credentials.json", "w") as f:
     json.dump(creds_dict, f)
 
-print("Credentials Loaded")
-
 # ---------------- GOOGLE AUTH ---------------- #
 
 scope = [
@@ -32,25 +30,115 @@ creds = ServiceAccountCredentials.from_json_keyfile_name(
 
 client = gspread.authorize(creds)
 
-print("Google Authorized")
+sheet = client.open(
+    "NSE Delivery Scanner"
+).sheet1
 
-# ---------------- OPEN SHEET ---------------- #
+# ---------------- WATCHLIST ---------------- #
 
-spreadsheet = client.open("NSE Delivery Scanner")
+watchlist = [
+    "RELIANCE",
+    "TCS",
+    "INFY",
+    "SBIN"
+]
 
-print("Spreadsheet Opened")
+# ---------------- FIXED WORKING DATE ---------------- #
 
-sheet = spreadsheet.sheet1
+today = datetime(2025, 5, 16)
 
-print("Sheet Selected")
+dd = today.strftime("%d")
+mon = today.strftime("%b").upper()
+yyyy = today.strftime("%Y")
 
-# ---------------- TEST WRITE ---------------- #
+# ---------------- NSE URL ---------------- #
+
+url = (
+    f"https://archives.nseindia.com/products/content/"
+    f"sec_bhavdata_full_{dd}{mon}{yyyy}.csv"
+)
+
+print(url)
+
+# ---------------- NSE REQUEST ---------------- #
+
+headers = {
+    "User-Agent": "Mozilla/5.0"
+}
+
+r = requests.get(
+    url,
+    headers=headers,
+    timeout=20
+)
+
+print("STATUS:", r.status_code)
+
+# ---------------- CHECK RESPONSE ---------------- #
+
+print(r.text[:500])
+
+# ---------------- READ CSV ---------------- #
+
+df = pd.read_csv(
+    io.StringIO(r.text),
+    skipinitialspace=True
+)
+
+# ---------------- CLEAN DATA ---------------- #
+
+df.columns = df.columns.str.strip()
+
+df["SYMBOL"] = (
+    df["SYMBOL"]
+    .astype(str)
+    .str.strip()
+)
+
+# ---------------- FILTER ---------------- #
+
+filtered = df[
+    df["SYMBOL"].isin(watchlist)
+]
+
+print(filtered)
+
+# ---------------- PREPARE DATA ---------------- #
+
+rows = []
+
+for _, row in filtered.iterrows():
+
+    turnover = round(
+        float(row["TTL_TRD_VAL"]) / 10000000,
+        2
+    )
+
+    rows.append([
+        row["SYMBOL"],
+        row["CLOSE_PRICE"],
+        row["TTL_TRD_QNTY"],
+        row["DELIV_QTY"],
+        row["DELIV_PER"],
+        turnover
+    ])
+
+print(rows)
+
+# ---------------- UPDATE SHEET ---------------- #
+
+sheet.clear()
 
 sheet.update(
     "A1",
-    [["TEST SUCCESS"]]
+    [[
+        "Stock",
+        "CMP",
+        "Volume",
+        "Delivery Qty",
+        "Delivery %",
+        "Turnover Cr"
+    ]] + rows
 )
 
-print("Test Write Done")
-
-
+print("GOOGLE SHEET UPDATED")
