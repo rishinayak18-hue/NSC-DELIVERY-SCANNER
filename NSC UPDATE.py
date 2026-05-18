@@ -154,7 +154,7 @@ latest_delivery = fetch_delivery_data(
 )
 
 # =========================================================
-# CHECK DATA
+# CHECK BHAVCOPY
 # =========================================================
 
 if latest_bhav is None:
@@ -166,14 +166,22 @@ if latest_bhav is None:
 
     raise Exception("BHAVCOPY FAILED")
 
+# =========================================================
+# OPTIONAL DELIVERY DATA
+# =========================================================
+
 if latest_delivery is None:
 
-    worksheet.update(
-        'K2',
-        [["DELIVERY FAILED"]]
-    )
+    print("DELIVERY DATA NOT AVAILABLE")
 
-    raise Exception("DELIVERY FAILED")
+    latest_delivery = pd.DataFrame(
+        columns=[
+            "SYMBOL",
+            "DELIV_QTY",
+            "DELIV_PER",
+            "TTL_TRD_VAL"
+        ]
+    )
 
 # =========================================================
 # CLEAN BHAVCOPY
@@ -212,7 +220,9 @@ for c in [
 
         break
 
-# EQ only
+# =========================================================
+# EQ ONLY
+# =========================================================
 
 latest_bhav = latest_bhav[
     latest_bhav[series_col]
@@ -220,7 +230,9 @@ latest_bhav = latest_bhav[
     .str.strip() == 'EQ'
 ]
 
-# Remove ETFs
+# =========================================================
+# REMOVE ETF
+# =========================================================
 
 filter_keywords = (
     'BEES|ETF|GOLD|LIQUID|CASE|SILVER|LIQ'
@@ -248,6 +260,18 @@ top250 = latest_bhav.sort_values(
 # =========================================================
 # CLEAN DELIVERY DATA
 # =========================================================
+
+if "SYMBOL" not in latest_delivery.columns:
+    latest_delivery["SYMBOL"] = ""
+
+if "TTL_TRD_VAL" not in latest_delivery.columns:
+    latest_delivery["TTL_TRD_VAL"] = 0
+
+if "DELIV_QTY" not in latest_delivery.columns:
+    latest_delivery["DELIV_QTY"] = 0
+
+if "DELIV_PER" not in latest_delivery.columns:
+    latest_delivery["DELIV_PER"] = 0
 
 latest_delivery["SYMBOL"] = (
     latest_delivery["SYMBOL"]
@@ -330,4 +354,5 @@ worksheet.update(
     [[status_msg]]
 )
 
+print("SUCCESS : GOOGLE SHEET UPDATED")
 print("SUCCESS : GOOGLE SHEET UPDATED")
