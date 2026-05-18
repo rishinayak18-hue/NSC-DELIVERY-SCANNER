@@ -2,7 +2,6 @@ import json
 import os
 import pandas as pd
 import requests
-import io
 from datetime import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
@@ -40,7 +39,16 @@ sheet = client.open(
 
 print("Google Sheet Connected")
 
-# ---------------- NSE URL ---------------- #
+# ---------------- WATCHLIST ---------------- #
+
+watchlist = [
+    "RELIANCE",
+    "TCS",
+    "INFY",
+    "SBIN"
+]
+
+# ---------------- FIXED WORKING DATE ---------------- #
 
 today = datetime(2025, 5, 16)
 
@@ -48,9 +56,11 @@ dd = today.strftime("%d")
 mon = today.strftime("%b").upper()
 yyyy = today.strftime("%Y")
 
+# ---------------- NSE URL ---------------- #
+
 url = (
-    f"https://archives.nseindia.com/products/content/"
-    f"sec_bhavdata_full_{dd}{mon}{yyyy}.csv"
+    f"https://nsearchives.nseindia.com/"
+    f"products/content/sec_bhavdata_full_{dd}{mon}{yyyy}.csv"
 )
 
 print(url)
@@ -58,31 +68,44 @@ print(url)
 # ---------------- REQUEST ---------------- #
 
 headers = {
-    "User-Agent": "Mozilla/5.0"
+    "User-Agent": (
+        "Mozilla/5.0 "
+        "(Windows NT 10.0; Win64; x64)"
+    )
 }
 
 response = requests.get(
     url,
     headers=headers,
-    timeout=20
+    timeout=30
 )
 
 print("STATUS:", response.status_code)
 
-# ---------------- SAVE RAW CSV ---------------- #
+print(response.text[:500])
 
-with open("test.csv", "w", encoding="utf-8") as f:
+# ---------------- SAVE FILE ---------------- #
+
+with open(
+    "bhavcopy.csv",
+    "w",
+    encoding="utf-8"
+) as f:
+
     f.write(response.text)
 
-print("CSV Saved")
+print("CSV SAVED")
 
 # ---------------- READ CSV ---------------- #
 
 try:
 
-    df = pd.read_csv("test.csv")
+    df = pd.read_csv(
+        "bhavcopy.csv",
+        engine="python"
+    )
 
-    print("CSV Loaded")
+    print("CSV LOADED")
 
 except Exception as e:
 
@@ -95,7 +118,7 @@ except Exception as e:
 
     exit()
 
-# ---------------- CLEAN ---------------- #
+# ---------------- CLEAN DATA ---------------- #
 
 df.columns = df.columns.str.strip()
 
@@ -105,18 +128,15 @@ df["SYMBOL"] = (
     .str.strip()
 )
 
-watchlist = [
-    "RELIANCE",
-    "TCS",
-    "INFY",
-    "SBIN"
-]
+# ---------------- FILTER ---------------- #
 
 filtered = df[
     df["SYMBOL"].isin(watchlist)
 ]
 
 print(filtered)
+
+print("ROWS FOUND:", len(filtered))
 
 # ---------------- PREPARE ROWS ---------------- #
 
@@ -162,4 +182,4 @@ sheet.update(
     ]] + rows
 )
 
-print("DONE")
+print("GOOGLE SHEET UPDATED SUCCESSFULLY")
