@@ -7,6 +7,8 @@ from datetime import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
+print("START")
+
 # ---------------- GOOGLE CREDENTIALS ---------------- #
 
 creds_dict = json.loads(
@@ -15,6 +17,8 @@ creds_dict = json.loads(
 
 with open("credentials.json", "w") as f:
     json.dump(creds_dict, f)
+
+print("Credentials Loaded")
 
 # ---------------- GOOGLE AUTH ---------------- #
 
@@ -34,24 +38,15 @@ sheet = client.open(
     "NSE Delivery Scanner"
 ).sheet1
 
-# ---------------- WATCHLIST ---------------- #
+print("Google Sheet Connected")
 
-watchlist = [
-    "RELIANCE",
-    "TCS",
-    "INFY",
-    "SBIN"
-]
-
-# ---------------- FIXED WORKING DATE ---------------- #
+# ---------------- NSE URL ---------------- #
 
 today = datetime(2025, 5, 16)
 
 dd = today.strftime("%d")
 mon = today.strftime("%b").upper()
 yyyy = today.strftime("%Y")
-
-# ---------------- NSE URL ---------------- #
 
 url = (
     f"https://archives.nseindia.com/products/content/"
@@ -60,32 +55,47 @@ url = (
 
 print(url)
 
-# ---------------- NSE REQUEST ---------------- #
+# ---------------- REQUEST ---------------- #
 
 headers = {
     "User-Agent": "Mozilla/5.0"
 }
 
-r = requests.get(
+response = requests.get(
     url,
     headers=headers,
     timeout=20
 )
 
-print("STATUS:", r.status_code)
+print("STATUS:", response.status_code)
 
-# ---------------- CHECK RESPONSE ---------------- #
+# ---------------- SAVE RAW CSV ---------------- #
 
-print(r.text[:500])
+with open("test.csv", "w", encoding="utf-8") as f:
+    f.write(response.text)
+
+print("CSV Saved")
 
 # ---------------- READ CSV ---------------- #
 
-df = pd.read_csv(
-    io.StringIO(r.text),
-    skipinitialspace=True
-)
+try:
 
-# ---------------- CLEAN DATA ---------------- #
+    df = pd.read_csv("test.csv")
+
+    print("CSV Loaded")
+
+except Exception as e:
+
+    print("CSV ERROR:", e)
+
+    sheet.update(
+        "A1",
+        [["CSV ERROR", str(e)]]
+    )
+
+    exit()
+
+# ---------------- CLEAN ---------------- #
 
 df.columns = df.columns.str.strip()
 
@@ -95,7 +105,12 @@ df["SYMBOL"] = (
     .str.strip()
 )
 
-# ---------------- FILTER ---------------- #
+watchlist = [
+    "RELIANCE",
+    "TCS",
+    "INFY",
+    "SBIN"
+]
 
 filtered = df[
     df["SYMBOL"].isin(watchlist)
@@ -103,25 +118,31 @@ filtered = df[
 
 print(filtered)
 
-# ---------------- PREPARE DATA ---------------- #
+# ---------------- PREPARE ROWS ---------------- #
 
 rows = []
 
 for _, row in filtered.iterrows():
 
-    turnover = round(
-        float(row["TTL_TRD_VAL"]) / 10000000,
-        2
-    )
+    try:
 
-    rows.append([
-        row["SYMBOL"],
-        row["CLOSE_PRICE"],
-        row["TTL_TRD_QNTY"],
-        row["DELIV_QTY"],
-        row["DELIV_PER"],
-        turnover
-    ])
+        turnover = round(
+            float(row["TTL_TRD_VAL"]) / 10000000,
+            2
+        )
+
+        rows.append([
+            row["SYMBOL"],
+            row["CLOSE_PRICE"],
+            row["TTL_TRD_QNTY"],
+            row["DELIV_QTY"],
+            row["DELIV_PER"],
+            turnover
+        ])
+
+    except Exception as e:
+
+        print("ROW ERROR:", e)
 
 print(rows)
 
@@ -141,4 +162,4 @@ sheet.update(
     ]] + rows
 )
 
-print("GOOGLE SHEET UPDATED")
+print("DONE")
